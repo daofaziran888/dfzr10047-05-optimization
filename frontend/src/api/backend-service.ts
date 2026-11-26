@@ -59,3 +59,24 @@ export async function loadOverview(): Promise<OverviewResult> {
   if (!response.ok) throw new Error('运营概览读取失败')
   return await response.json()
 }
+
+export async function postRecovery<T = Record<string, unknown>>(
+  path: string,
+  body: Record<string, unknown> = {},
+): Promise<T> {
+  const response = await request(path, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error((payload as { message?: string }).message ?? `接口返回 ${response.status}`)
+  }
+  return payload as T
+}
+
+export async function getRecovery<T = Record<string, unknown>>(path: string): Promise<T> {
+  const response = await request(path)
+  if (!response.ok) throw new Error(`接口返回 ${response.status}`)
+  return (await response.json()) as T
+}

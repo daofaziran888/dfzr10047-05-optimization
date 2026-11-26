@@ -14,6 +14,9 @@ class Store:
         self._tables: dict[str, list[dict[str, Any]]] = {
             name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
         }
+        # 易失的恢复编排状态（尝试版本、回执、领取记录）。
+        # 不放入 _tables，避免被通用资源接口当成第 19 个业务模块。
+        self.volatile: dict[str, Any] = {}
 
     def module_names(self) -> list[str]:
         return sorted(self._tables)
@@ -23,6 +26,7 @@ class Store:
         self._tables = {
             name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
         }
+        self.volatile = {}
 
     def rows(self, module: str) -> list[dict[str, Any]]:
         return self._tables.setdefault(module, [])

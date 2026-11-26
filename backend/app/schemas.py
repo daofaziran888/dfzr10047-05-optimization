@@ -29,3 +29,8 @@ class EntryPayload(BaseModel):
 class ActionPayload(BaseModel):
     action: str
     remark: str | None = None
+    # 恢复类动作需要携带源文档/更正版；普通状态流转可不传。
+    values: dict[str, Any] = Field(default_factory=dict)
+    params: dict[str, Any] = Field(default_factory=dict)
+    document: dict[str, Any] | None = None
+    documents: list[dict[str, Any]] | dict[str, Any] | None = None

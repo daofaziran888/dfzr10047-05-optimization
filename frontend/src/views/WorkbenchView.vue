@@ -15,6 +15,9 @@
       </div>
     </header>
 
+    <FlattenRecoveryPanel v-if="meta.key === 'nested_flatten'" />
+    <ValueCastRecoveryPanel v-else-if="meta.key === 'value_cast'" />
+
     <div class="stat-row">
       <article v-for="item in stats" :key="item.label" class="stat-card">
         <span class="stat-label">{{ item.label }}</span>
@@ -104,6 +107,8 @@ import {
   runAction as applyAction,
 } from '@/api/backend-service'
 import type { EntryRow } from '@/data/types'
+import FlattenRecoveryPanel from '@/components/FlattenRecoveryPanel.vue'
+import ValueCastRecoveryPanel from '@/components/ValueCastRecoveryPanel.vue'
 
 const props = defineProps<{ moduleKey: string }>()
 const meta = moduleMeta(props.moduleKey)

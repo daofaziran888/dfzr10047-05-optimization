@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from app.services.base import BaseModuleService
+from app.services.document_recovery import recovery_center
 from app.store import store
 
 
@@ -120,7 +121,11 @@ class ValueCastService(BaseModuleService):
 
     def quarantine_failures(self, cast_no: str, intake_batch: str, row_num: int,
                             failures: list[dict[str, Any]], raw_text: str,
-                            quarantine_time: str) -> list[str]:
+                            quarantine_time: str, *,
+                            locator: str | None = None,
+                            array_index: int | None = None,
+                            doc_id: str | None = None,
+                            attempt_id: str | None = None) -> list[str]:
         """把转型失败按行写入坏行隔离，返回生成的隔离编号。"""
         created: list[str] = []
         for failure in failures:
@@ -135,6 +140,10 @@ class ValueCastService(BaseModuleService):
                 "原始行号": str(row_num), "失败字段": str(failure["field"]),
                 "失败原因": f"取值转型失败: {failure['reason']}",
                 "原始行文本": raw_text, "复核结论": "", "隔离时间": quarantine_time,
+                "原始文档编号": doc_id or "",
+                "文档尝试编号": attempt_id or "",
+                "原始数组序号": "" if array_index is None else str(array_index),
+                "错误定位": locator or "",
             })
             created.append(quarantine_no)
         return created
@@ -152,3 +161,32 @@ class ValueCastService(BaseModuleService):
                     "status": rule.get("status"),
                 }
         return {"转型编号": cast_no, "转型失败数": 0, "status": "规则不存在"}
+
+    # ------------------------------------------------------------------
+    # 从嵌套展平回执领取完整且已确认的结果
+    # ------------------------------------------------------------------
+    def claim_confirmed_results(self, **kwargs: Any):
+        """领取已确认展平文档并写入契约输入批次；按回执/领取键幂等。"""
+        return recovery_center.claim_confirmed(**kwargs)
+
+    def claim_flatten_receipts(self, **kwargs: Any):
+        return recovery_center.claim_confirmed(**kwargs)
+
+    def claim_document_results(self, **kwargs: Any):
+        return recovery_center.claim_confirmed(**kwargs)
+
+    def consume_processing_receipt(self, receipt_id: str, **kwargs: Any):
+        """领取并执行单份文档回执；重复调用不会重复执行。"""
+        return recovery_center.claim_confirmed(receipt_ids=[receipt_id], **kwargs)
+
+    def get_contract_input_batch(self, batch_id: str) -> dict[str, Any] | None:
+        return recovery_center.get_contract_batch(batch_id)
+
+    def list_recovery_claims(self, group_id: str | None = None) -> list[dict[str, Any]]:
+        return recovery_center.list_claims(group_id)
+
+    claim_confirmed = claim_confirmed_results
+    claim_for_cast = claim_confirmed_results
+    claim_documents = claim_confirmed_results
+    claim_processing_receipts = claim_flatten_receipts
+    consume_receipt = consume_processing_receipt

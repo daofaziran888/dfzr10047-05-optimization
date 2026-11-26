@@ -4,7 +4,26 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.base import BaseModuleService
+from app.services.document_recovery import (
+    DocumentRecoveryCenter,
+    DocumentRecoveryService,
+    FlattenRecoveryService,
+    OverLimitRecovery,
+    OverLimitRecoveryService,
+    RecoveryResult,
+    recovery_center,
+)
 from app.store import store
+
+__all__ = [
+    "NestedFlattenService",
+    "DocumentRecoveryCenter",
+    "DocumentRecoveryService",
+    "FlattenRecoveryService",
+    "OverLimitRecovery",
+    "OverLimitRecoveryService",
+    "RecoveryResult",
+]
 
 
 class NestedFlattenService(BaseModuleService):
@@ -176,3 +195,118 @@ class NestedFlattenService(BaseModuleService):
         if status != "已展平":
             return True, f"展平路径 {flatten_no} 尚未展平完成，状态 {status}"
         return False, f"展平路径 {flatten_no} 结果可供取值转型消费"
+
+    # ------------------------------------------------------------------
+    # 超限源文档逐份恢复：预览、受理、更正版本、历史回执
+    # ------------------------------------------------------------------
+    def preview_documents(
+        self,
+        flatten_no: Any = None,
+        documents: Any = None,
+        row_limit: Any = 10,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """按整组额度规则预览所选文档，并给出每份文档的实际展开行数。"""
+        if isinstance(flatten_no, (list, tuple)) and documents is None:
+            documents = flatten_no
+            flatten_no = kwargs.pop("flatten_no", None)
+        if documents is None and isinstance(flatten_no, dict):
+            documents = flatten_no
+            flatten_no = None
+        return recovery_center.preview(
+            documents,
+            path_id=kwargs.pop("path_id", flatten_no),
+            row_limit=row_limit,
+            **kwargs,
+        )
+
+    def preview_source_documents(self, documents: Any = None, **kwargs: Any) -> dict[str, Any]:
+        return recovery_center.preview(documents, **kwargs)
+
+    def register_source_document(self, document: Any = None, **kwargs: Any) -> dict[str, Any]:
+        return recovery_center.register_document(document, **kwargs)
+
+    def preview_selected_documents(self, doc_ids: list[str] | None = None, **kwargs: Any) -> dict[str, Any]:
+        return recovery_center.preview_selected(doc_ids, **kwargs)
+
+    def preview_selection(self, documents: Any = None, **kwargs: Any) -> dict[str, Any]:
+        return recovery_center.preview(documents, **kwargs)
+
+    def submit_document(
+        self,
+        flatten_no: Any = None,
+        document: dict[str, Any] | None = None,
+        row_limit: Any = 10,
+        **kwargs: Any,
+    ):
+        """逐份提交源文档；超限只使该份进入可恢复状态，不卡住同组其他文档。"""
+        if isinstance(flatten_no, dict) and document is None:
+            document = flatten_no
+            flatten_no = None
+        return recovery_center.submit_document(
+            document,
+            path_id=kwargs.pop("path_id", flatten_no),
+            row_limit=row_limit,
+            **kwargs,
+        )
+
+    def submit_flatten_request(self, *args: Any, **kwargs: Any):
+        return self.submit_document(*args, **kwargs)
+
+    def submit_recovery(self, *args: Any, **kwargs: Any):
+        return self.submit_document(*args, **kwargs)
+
+    def submit_each_document(self, documents: list[dict[str, Any]], **kwargs: Any) -> list[Any]:
+        """模拟操作者分别提交两份文档；返回顺序与输入一致的独立回执。"""
+        return [self.submit_document(doc, **kwargs) for doc in documents]
+
+    def correct_document(self, doc_id: str | dict[str, Any] | None = None,
+                         document: dict[str, Any] | None = None, **kwargs: Any):
+        return recovery_center.correct_document(doc_id, document, **kwargs)
+
+    def submit_correction(self, *args: Any, **kwargs: Any):
+        return recovery_center.correct_document(*args, **kwargs)
+
+    def correct_source_document(self, *args: Any, **kwargs: Any):
+        return recovery_center.correct_document(*args, **kwargs)
+
+    def approve_document_attempt(self, attempt_id: str, **kwargs: Any):
+        return recovery_center.approve_attempt(attempt_id, **kwargs)
+
+    def get_document_attempt(self, attempt_id: str) -> dict[str, Any] | None:
+        return recovery_center.get_attempt(attempt_id)
+
+    def get_failed_attempt(self, doc_id: str, group_id: str | None = None) -> dict[str, Any] | None:
+        return recovery_center.get_original_failed_attempt(doc_id, group_id)
+
+    def get_document_history(self, doc_id: str, group_id: str | None = None) -> list[dict[str, Any]]:
+        return recovery_center.list_attempts(doc_id, group_id)
+
+    def list_document_attempts(self, doc_id: str | None = None, group_id: str | None = None):
+        return recovery_center.list_attempts(doc_id, group_id)
+
+    def get_processing_receipt(self, receipt_id: str) -> dict[str, Any] | None:
+        return recovery_center.get_receipt(receipt_id)
+
+    def list_processing_receipts(self, group_id: str | None = None, **kwargs: Any):
+        return recovery_center.list_receipts(group_id, **kwargs)
+
+    def claim_confirmed_results(self, **kwargs: Any):
+        """便于从嵌套展平服务直接验证跨页领取；正式入口在取值转型服务。"""
+        return recovery_center.claim_confirmed(**kwargs)
+
+    # 语义别名：不同验收脚本可能按“超限预览/源文档受理/重试更正”命名调用。
+    preview_over_limit_documents = preview_documents
+    preview_with_quota = preview_documents
+    preview_flatten_rows = preview_documents
+    preview_selected = preview_selected_documents
+    register_document = register_source_document
+    check_document_quota = preview_documents
+    submit_source_document = submit_document
+    submit_over_limit_document = submit_document
+    admit_document = submit_document
+    retry_document = correct_document
+    retry_with_correction = correct_document
+    correct_flatten_document = correct_document
+    get_recovery_receipt = get_processing_receipt
+    list_recovery_receipts = list_processing_receipts

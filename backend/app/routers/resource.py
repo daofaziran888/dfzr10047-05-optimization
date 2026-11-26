@@ -13,6 +13,23 @@ from app.services import service_for
 
 router = APIRouter(prefix="/api", tags=["业务资源"])
 
+PREVIEW_ACTIONS = {
+    "预览恢复", "预览超限", "预览所选", "预览所选文档", "逐份预览",
+    "preview_recovery", "preview_documents", "preview_selection",
+}
+SUBMIT_ACTIONS = {
+    "逐份提交转型", "提交文档转型", "提交恢复请求", "提交转型请求",
+    "submit_document", "submit_flatten_request", "submit_recovery",
+}
+CORRECT_ACTIONS = {
+    "提交更正", "提交完整更正", "更正文档", "重试更正",
+    "correct_document", "submit_correction", "retry_document",
+}
+CLAIM_ACTIONS = {
+    "领取已确认结果", "领取展平结果", "领取确认结果", "领取契约输入",
+    "claim_confirmed", "claim_confirmed_results", "claim_for_cast",
+}
+
 
 def require_service(module: str):
     service = service_for(module)
@@ -91,8 +108,48 @@ def create_entry(module: str, payload: EntryPayload) -> ActionResult:
     return ActionResult(ok=True, message=f"{service.ENTITY}已登记", entry=entry)
 
 
+def _run_recovery_action(module: str, entry_id: int, payload: ActionPayload) -> ActionResult | None:
+    """把携带文档正文的恢复类动作分派给对应领域服务。"""
+    action = payload.action.strip()
+    if action not in (PREVIEW_ACTIONS | SUBMIT_ACTIONS | CORRECT_ACTIONS | CLAIM_ACTIONS):
+        return None
+    service = service_for(module)
+    if service is None:
+        return None
+
+    kwargs: dict[str, Any] = {}
+    kwargs.update(payload.params or {})
+    kwargs.update(payload.values or {})
+    row = service.get_entry(entry_id) if hasattr(service, "get_entry") else None
+    if row and row.get("展平编号"):
+        kwargs.setdefault("flatten_no", row.get("展平编号"))
+        kwargs.setdefault("path_id", row.get("展平编号"))
+    if payload.document is not None:
+        kwargs["document"] = payload.document
+    if payload.documents is not None:
+        kwargs["documents"] = payload.documents
+
+    if action in PREVIEW_ACTIONS and hasattr(service, "preview_documents"):
+        result = service.preview_documents(**kwargs)
+        return ActionResult(ok=True, message=result.get("message", "预览完成"), entry=result)
+    if action in SUBMIT_ACTIONS and hasattr(service, "submit_document"):
+        result = service.submit_document(**kwargs)
+        return ActionResult(ok=bool(result.ok), message=result.message, entry=result.to_dict())
+    if action in CORRECT_ACTIONS and hasattr(service, "correct_document"):
+        doc_id = kwargs.pop("doc_id", None) or kwargs.pop("document_id", None)
+        result = service.correct_document(doc_id, **kwargs)
+        return ActionResult(ok=bool(result.ok), message=result.message, entry=result.to_dict())
+    if action in CLAIM_ACTIONS and hasattr(service, "claim_confirmed_results"):
+        result = service.claim_confirmed_results(**kwargs)
+        return ActionResult(ok=bool(result.ok), message=result.message, entry=result.to_dict())
+    return ActionResult(ok=False, message=f"模块 {module} 不支持恢复动作「{action}」")
+
+
 @router.post("/{module}/{entry_id}/actions", response_model=ActionResult)
 def run_action(module: str, entry_id: int, payload: ActionPayload) -> ActionResult:
     service = require_service(module)
+    recovery_result = _run_recovery_action(module, entry_id, payload)
+    if recovery_result is not None:
+        return recovery_result
     entry, message = service.run_action(entry_id, payload.action.strip())
     return ActionResult(ok=entry is not None, message=message, entry=entry)
